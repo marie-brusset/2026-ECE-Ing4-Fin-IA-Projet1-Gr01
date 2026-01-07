@@ -1,2 +1,0 @@
-Test d'authentification GitHub pour jsboigeECE
-Date: 2026-01-07
