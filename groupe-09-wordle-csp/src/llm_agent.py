@@ -54,11 +54,11 @@ def solveur_csp_local(lettres_vertes="", lettres_jaunes="", lettres_grises=""):
     return solve_wordle_csp(DICTIONARY, constraints)
 
 # ----------------------------
-# Agent Wordle (LLM + CSP)
+# Agent Wordle complet
 # ----------------------------
 def interroger_agent_wordle(prompt_utilisateur):
 
-    # LLM : extraction des contraintes Wordle
+    # Extraction des contraintes Wordle
     response = ollama.chat(
         model="llama3.1",
         messages=[
@@ -66,7 +66,7 @@ def interroger_agent_wordle(prompt_utilisateur):
                 "role": "user",
                 "content": (
                     "You are a Wordle assistant.\n"
-                    "From the following description, extract Wordle feedback.\n"
+                    "Extract the Wordle feedback and call the function.\n"
                     "Return ONLY a function call.\n\n"
                     f"{prompt_utilisateur}"
                 ),
@@ -107,35 +107,47 @@ def interroger_agent_wordle(prompt_utilisateur):
     tool_call = response["message"]["tool_calls"][0]
     args = tool_call["function"]["arguments"]
 
-    # Sécurité : Ollama renvoie parfois une string JSON
     if isinstance(args, str):
         args = json.loads(args)
 
-    # CSP strict Wordle
+    # CSP strict
     mots_possibles = solveur_csp_local(**args)
 
     if not mots_possibles:
         return "Aucun mot Wordle valide ne respecte les contraintes données."
 
-    # PROMPT STRICT POUR LE CHOIX DU MOT (ANGLAIS)
+    # Prompt ranking amélioré
     prompt_final = f"""
 You are an expert Wordle solver.
 
 You are given a list of valid 5-letter ENGLISH words.
-You MUST choose exactly ONE word from the list.
-It is strictly forbidden to invent a word or alter spelling.
+You MUST choose words ONLY from this list.
+It is strictly forbidden to invent or modify any word.
 
 Selection criteria:
 1. Common usage in English
 2. High letter frequency
-3. Prefer fewer repeated letters when possible
+3. Prefer words with 5 unique letters
+4. Avoid rare or obscure words
 
 List of possible words:
 {mots_possibles}
 
-Answer strictly using this format:
-Chosen word: <WORD>
-Reason: <maximum 2 sentences>
+Instructions:
+- Rank the words from most promising to least promising.
+- If there are 3 or more words, return the TOP 3.
+- If there are fewer than 3 words, return all of them.
+- The first word in the ranking is the chosen word.
+
+Answer STRICTLY using this format:
+
+Mot choisi: <WORD>
+Raison: <maximum 2 sentences>
+
+Ranking:
+1. <WORD>
+2. <WORD>
+3. <WORD>
 """
 
     final_response = ollama.chat(
@@ -143,22 +155,36 @@ Reason: <maximum 2 sentences>
         messages=[{"role": "user", "content": prompt_final}],
     )
 
-    # Validation stricte du mot choisi
     content = final_response["message"]["content"]
+
+    # ----------------------------
+    # Validation stricte
+    # ----------------------------
+
     chosen_word = None
+    ranking_words = []
 
     for line in content.splitlines():
+        line = line.strip()
+
         if line.lower().startswith("chosen word"):
             chosen_word = line.split(":")[1].strip().upper()
 
+        if line and line[0].isdigit() and "." in line:
+            word = line.split(".", 1)[1].strip().upper()
+            ranking_words.append(word)
+
+    # Vérification chosen
     if chosen_word not in mots_possibles:
-        return (
-            "LLM proposed an invalid word.\n\n"
-            f"LLM output:\n{content}"
-        )
+        return "Le LLM a proposé un mot choisi invalide."
+
+    # Vérification ranking
+    for w in ranking_words:
+        if w not in mots_possibles:
+            return "Le LLM a proposé un ranking invalide."
 
     return (
-        f"MOTS POSSIBLES ({len(mots_possibles)}):\n"
+        f"\nMOTS POSSIBLES ({len(mots_possibles)}):\n"
         f"{', '.join(mots_possibles[:30])}"
         + ("..." if len(mots_possibles) > 30 else "")
         + "\n\nDECISION DE L'IA:\n"
