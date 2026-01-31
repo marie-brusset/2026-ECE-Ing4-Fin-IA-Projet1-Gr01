@@ -24,11 +24,13 @@ Installation de Ollama :
     
 ### 2. Créer l’environnement virtuel
 Pour Windows :  python -m venv venv
+
 Quand on ouvre un nouveau Terminal : venv\Scripts\activate
 
 ### 3. Dépendances Python
 Installer les bibliothèques nécessaires :
  - pip install keyboard
+ - pip intsall streamlit
 
 ### 4. Fichier de données
 Nous avons créé un fichier d’environ 22000 mots anglais de 5 lettres à partir d’un fichier contenant la plupart des mots anglais. Nous avons ensuite gardé les mots de 5 lettres sans caractères spéciaux tels que “-” ou “ '”
