@@ -3,7 +3,7 @@ import sys
 from llm_agent import interroger_agent_wordle
 
 def main():
-    print("--- 🧠 Wordle Solver IA (Ollama + CSP) ---")
+    print("--- Wordle Solver IA (Ollama + CSP) ---")
     print("Pour quitter : Appuyez sur 'Echap' ET 'Entrée'\n")
 
     while True:
@@ -19,13 +19,13 @@ def main():
         if not prompt:
             continue
         
-        print("\n🤔 L'IA réfléchit...\n")
+        print("\nL'IA réfléchit...\n")
         
         try:
             reponse = interroger_agent_wordle(prompt)
             print(reponse)
         except Exception as e:
-            print(f"❌ Erreur lors de l'appel à l'IA : {e}")
+            print(f"Erreur lors de l'appel à l'IA : {e}")
             
         print("\n" + "-" * 40 + "\n")
 
