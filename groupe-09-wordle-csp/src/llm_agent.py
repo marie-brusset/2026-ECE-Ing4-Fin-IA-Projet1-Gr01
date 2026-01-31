@@ -1,133 +1,166 @@
 import ollama
+import json
 from csp_solver import solve_wordle_csp
-from collections import Counter
 
 # ----------------------------
 # Chargement du dictionnaire
 # ----------------------------
-def charger_dictionnaire(nom_fichier):
+def load_dictionary(filename):
     try:
-        with open(nom_fichier, 'r', encoding='utf-8') as f:
-            return [ligne.strip().upper() for ligne in f if len(ligne.strip()) == 5]
+        with open(filename, "r", encoding="utf-8") as f:
+            return [line.strip().upper() for line in f if len(line.strip()) == 5]
     except FileNotFoundError:
-        print(f"Erreur : Le fichier {nom_fichier} est introuvable.")
+        print(f"File {filename} not found.")
         return []
 
-DICTIONNAIRE = charger_dictionnaire("wordle1.txt")
+DICTIONARY = load_dictionary("wordle.txt")
 
 # ----------------------------
-# Interface CSP
+# Interface CSP locale
 # ----------------------------
 def solveur_csp_local(lettres_vertes="", lettres_jaunes="", lettres_grises=""):
-    contraintes = []
+    """
+    lettres_vertes  : "P0,R3"
+    lettres_jaunes  : "O1,E4"
+    lettres_grises  : "L2,A3,K4"
+    """
+
+    constraints = []
 
     if lettres_vertes:
-        for item in lettres_vertes.split(','):
-            lettre = item[0].upper()
-            pos = int(item[1])
-            contraintes.append((lettre, pos, 'green'))
+        for item in lettres_vertes.split(","):
+            item = item.strip()
+            if len(item) >= 2:
+                letter = item[0].upper()
+                pos = int(item[1])
+                constraints.append((letter, pos, "green"))
 
     if lettres_jaunes:
-        for item in lettres_jaunes.split(','):
-            lettre = item[0].upper()
-            pos = int(item[1])
-            contraintes.append((lettre, pos, 'yellow'))
+        for item in lettres_jaunes.split(","):
+            item = item.strip()
+            if len(item) >= 2:
+                letter = item[0].upper()
+                pos = int(item[1])
+                constraints.append((letter, pos, "yellow"))
 
     if lettres_grises:
-        for lettre in lettres_grises.split(','):
-            lettre = lettre.strip().upper()
-            for i in range(5):
-                contraintes.append((lettre, i, 'gray'))
+        for item in lettres_grises.split(","):
+            item = item.strip()
+            if len(item) >= 2:
+                letter = item[0].upper()
+                pos = int(item[1])
+                constraints.append((letter, pos, "gray"))
 
-    return solve_wordle_csp(DICTIONNAIRE, contraintes)
+    return solve_wordle_csp(DICTIONARY, constraints)
 
 # ----------------------------
 # Agent Wordle (LLM + CSP)
 # ----------------------------
 def interroger_agent_wordle(prompt_utilisateur):
 
-    # LLM : extraction des contraintes
+    # LLM : extraction des contraintes Wordle
     response = ollama.chat(
         model="llama3.1",
-        messages=[{"role": "user", "content": prompt_utilisateur}],
-        tools=[{
-            "type": "function",
-            "function": {
-                "name": "solveur_csp_local",
-                "description": "Filtre les mots Wordle selon les contraintes",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "lettres_vertes": {
-                            "type": "string",
-                            "description": "Format LettrePosition, ex: P0,R3"
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "You are a Wordle assistant.\n"
+                    "From the following description, extract Wordle feedback.\n"
+                    "Return ONLY a function call.\n\n"
+                    f"{prompt_utilisateur}"
+                ),
+            }
+        ],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "solveur_csp_local",
+                    "description": "Filters Wordle words using feedback constraints",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "lettres_vertes": {
+                                "type": "string",
+                                "description": "Green letters with position, e.g. P0,R3",
+                            },
+                            "lettres_jaunes": {
+                                "type": "string",
+                                "description": "Yellow letters with position, e.g. O1,E4",
+                            },
+                            "lettres_grises": {
+                                "type": "string",
+                                "description": "Gray letters with position, e.g. L2,A3,K4",
+                            },
                         },
-                        "lettres_jaunes": {
-                            "type": "string",
-                            "description": "Format LettrePosition"
-                        },
-                        "lettres_grises": {
-                            "type": "string",
-                            "description": "Format A,B,C"
-                        },
+                        "required": [],
                     },
-                    "required": ["lettres_grises"],
                 },
-            },
-        }],
+            }
+        ],
     )
 
-    # Vérification de l'appel d'outil
     if not response["message"].get("tool_calls"):
         return response["message"]["content"]
 
     tool_call = response["message"]["tool_calls"][0]
     args = tool_call["function"]["arguments"]
 
-    # CSP exact
+    # Sécurité : Ollama renvoie parfois une string JSON
+    if isinstance(args, str):
+        args = json.loads(args)
+
+    # CSP strict Wordle
     mots_possibles = solveur_csp_local(**args)
 
     if not mots_possibles:
-        return "Aucun mot valide ne correspond aux contraintes."
+        return "Aucun mot Wordle valide ne respecte les contraintes données."
 
-    # PROMPT STRICT POUR LE LLM
+    # PROMPT STRICT POUR LE CHOIX DU MOT (ANGLAIS)
     prompt_final = f"""
-Tu es un expert du jeu Wordle.
+You are an expert Wordle solver.
 
-Tu dois choisir UN SEUL mot exactement présent dans la liste ci-dessous.
-Il est STRICTEMENT INTERDIT de proposer un mot qui ny figure pas.
+You are given a list of valid 5-letter ENGLISH words.
+You MUST choose exactly ONE word from the list.
+It is strictly forbidden to invent a word or alter spelling.
 
-Critères de choix :
-1. lettres fréquentes en français
-2. diversité des lettres
-3. mot linguistiquement courant
+Selection criteria:
+1. Common usage in English
+2. High letter frequency
+3. Prefer fewer repeated letters when possible
 
-Liste des mots possibles :
+List of possible words:
 {mots_possibles}
 
-Réponds exactement sous la forme :
-Mot choisi : <MOT>
-Justification : <2 phrases maximum>
+Answer strictly using this format:
+Chosen word: <WORD>
+Reason: <maximum 2 sentences>
 """
 
     final_response = ollama.chat(
         model="llama3.1",
-        messages=[{"role": "user", "content": prompt_final}]
+        messages=[{"role": "user", "content": prompt_final}],
     )
 
-    # Sécurité anti-hallucination
-    contenu = final_response["message"]["content"]
-    lignes = contenu.splitlines()
+    # Validation stricte du mot choisi
+    content = final_response["message"]["content"]
+    chosen_word = None
 
-    mot_choisi = None
-    for ligne in lignes:
-        if ligne.lower().startswith("mot choisi"):
-            mot_choisi = ligne.split(":")[1].strip().upper()
+    for line in content.splitlines():
+        if line.lower().startswith("chosen word"):
+            chosen_word = line.split(":")[1].strip().upper()
 
-    if mot_choisi not in mots_possibles:
-        return f" Erreur LLM : mot invalide proposé.\n{contenu}"
+    if chosen_word not in mots_possibles:
+        return (
+            "LLM proposed an invalid word.\n\n"
+            f"LLM output:\n{content}"
+        )
 
     return (
-        f" Mots possibles : {', '.join(mots_possibles)}\n\n"
-        f" Analyse du LLM :\n{contenu}"
+        f"MOTS POSSIBLES ({len(mots_possibles)}):\n"
+        f"{', '.join(mots_possibles[:30])}"
+        + ("..." if len(mots_possibles) > 30 else "")
+        + "\n\nDECISION DE L'IA:\n"
+        + content
     )
