@@ -114,5 +114,9 @@ L’interface web peut être lancée avec la commande suivante :
 ```bash
 python -m streamlit run app_streamlit.py
 
+## Documentation technique
+
+La documentation technique du projet est disponible ici :
+[DOCUMENTATION_TECHNIQUE.md](./DOCUMENTATION_TECHNIQUE.md)
 
 
