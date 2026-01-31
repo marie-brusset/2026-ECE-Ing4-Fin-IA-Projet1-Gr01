@@ -13,7 +13,7 @@ def charger_dictionnaire(nom_fichier):
         print(f"Erreur : Le fichier {nom_fichier} est introuvable.")
         return []
 
-DICTIONNAIRE = charger_dictionnaire("wordle.txt")
+DICTIONNAIRE = charger_dictionnaire("wordle1.txt")
 
 # ----------------------------
 # Interface CSP
