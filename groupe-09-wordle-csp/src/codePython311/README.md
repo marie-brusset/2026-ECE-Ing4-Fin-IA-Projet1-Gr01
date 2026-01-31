@@ -56,6 +56,17 @@ Cette séparation assure une architecture claire et extensible.
 
 ---
 
+## Intégration d’une IA (LLM)
+
+Le projet peut intégrer un agent basé sur un modèle de langage (LLM).
+Cet agent n’effectue pas le raisonnement par contraintes.
+Il exploite les résultats fournis par le solveur CSP afin de proposer un mot
+et, éventuellement, fournir une explication du choix.
+
+Cette intégration permet d’explorer une approche hybride combinant
+raisonnement symbolique et aide à la décision par IA.
+
+
 ## 4. Intégration du LLM et Function Calling
 
 Le LLM est utilisé comme une **couche décisionnelle et explicative**
