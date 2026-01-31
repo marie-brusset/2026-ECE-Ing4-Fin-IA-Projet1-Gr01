@@ -25,3 +25,16 @@ Il sélectionne un mot et fournit une explication du choix.
 Deux interfaces sont proposées :
 - Une interface console pour les tests
 - Une interface web développée avec Streamlit
+
+## Intégration d’une IA (LLM)
+
+Le projet prévoit l’intégration d’un agent basé sur un modèle de langage (LLM).
+Cet agent n’intervient pas dans la résolution des contraintes.
+
+Le raisonnement logique du jeu Wordle est entièrement assuré par le solveur CSP.
+L’agent LLM exploite uniquement les résultats fournis par le solveur
+(liste des mots compatibles) afin d’aider à la prise de décision.
+
+Cette approche permet de combiner un raisonnement symbolique explicite
+avec une aide à la décision basée sur l’IA, tout en conservant un système
+compréhensible et reproductible.
