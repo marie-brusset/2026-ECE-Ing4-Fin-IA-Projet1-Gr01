@@ -4,9 +4,10 @@ def solve_wordle_csp(possible_words, constraints):
 
     green = {}
     yellow_forbidden = defaultdict(set)
-    gray_letters = defaultdict(set)
     min_count = defaultdict(int)
+    gray_letters = set()
 
+    # Analyse contraintes
     for letter, pos, fb in constraints:
         letter = letter.upper()
 
@@ -19,7 +20,7 @@ def solve_wordle_csp(possible_words, constraints):
             min_count[letter] += 1
 
         elif fb == "gray":
-            gray_letters[letter].add(pos)
+            gray_letters.add(letter)
 
     solutions = []
 
@@ -37,7 +38,7 @@ def solve_wordle_csp(possible_words, constraints):
         if not valid:
             continue
 
-        # jaunes (interdits à la position)
+        # jaunes (pas à cette position)
         for pos, letters in yellow_forbidden.items():
             if word[pos] in letters:
                 valid = False
@@ -46,23 +47,23 @@ def solve_wordle_csp(possible_words, constraints):
         if not valid:
             continue
 
-        # jaunes doivent exister ailleurs
-        for letter in min_count:
-            if counts[letter] < min_count[letter]:
+        # jaunes doivent exister
+        for letter, required in min_count.items():
+            if counts[letter] < required:
                 valid = False
                 break
 
         if not valid:
             continue
 
-        # gris positionnels
-        for letter, positions in gray_letters.items():
-            for pos in positions:
-                if word[pos] == letter:
-                    valid = False
-                    break
+        # gris = absents globalement (sauf si min_count > 0)
+        for letter in gray_letters:
+            if letter not in min_count and counts[letter] > 0:
+                valid = False
+                break
 
         if valid:
             solutions.append(word)
 
     return solutions
+
