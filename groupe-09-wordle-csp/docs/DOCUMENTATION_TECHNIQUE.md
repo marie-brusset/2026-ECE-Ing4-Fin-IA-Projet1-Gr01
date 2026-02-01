@@ -1,115 +1,179 @@
-# Documentation technique – Solveur Wordle CSP + LLM
+# Documentation technique – Solveur Wordle (CSP + LLM)
 
-## 1. Objectif du projet
-Ce projet a pour objectif de résoudre le jeu **Wordle** en combinant :
-- une approche algorithmique basée sur un **CSP (Constraint Satisfaction Problem)**,
-- une approche assistée par un **LLM** (Large Language Model) exécuté localement via **Ollama**.
+## 1. Objectif
 
-Le système ne simule pas le jeu Wordle lui-même, mais modélise le **raisonnement logique** du jeu afin de retrouver les mots compatibles avec les retours fournis par l’utilisateur.
+Ce projet vise à assister la résolution de Wordle (5 lettres) en combinant :
 
----
+- un **filtrage déterministe** basé sur les règles exactes du jeu (formalisé comme un problème de contraintes),
+- un **LLM** (via Ollama) utilisé uniquement pour :
+  1) extraire une tentative depuis du texte libre (fallback),
+  2) proposer un classement Top 3 des meilleurs mots parmi les candidats déjà validés.
 
-## 2. Organisation générale du projet
-Le projet est structuré de la manière suivante :
+Le LLM n’est jamais la “source de vérité” : le CSP (filtrage exact) décide quels mots sont possibles.
+
+## 2. Structure du projet
+Arborescence (exemple) :
 
 - `src/`
-  - `main.py` : interface console pour utiliser le solveur
-  - `app.py` : interface web développée avec Streamlit
-  - `csp_solver.py` : implémentation du solveur Wordle par contraintes
-  - `llm_agent.py` : agent combinant CSP et LLM
-  - `wordle.txt` : dictionnaire de plus de 20 000 mots
+  - `csp_solver.py` : règles Wordle + filtrage des candidats
+  - `llm_agent.py` : orchestration (parsing, extraction LLM, ranking LLM)
+  - `app.py` : UI Streamlit
+  - `main.py` : interface CLI
+  - `wordle.txt` : dictionnaire (mots 5 lettres)
 - `docs/`
-  - `DOCUMENTATION_TECHNIQUE.md` : documentation technique du projet
+  - `DOCUMENTATION_TECHNIQUE.md`
 
----
+> Hypothèse : `wordle.txt` contient des mots anglais en A–Z uniquement.  
+> La notation `V/J/G` est une convention interne (Vert/Jaune/Gris).
 
-## 3. Représentation du problème (CSP)
-Le problème Wordle est modélisé comme un problème de satisfaction de contraintes :
+## 3. Modélisation du Wordle comme CSP
 
-- Chaque mot est une chaîne de **5 lettres**
-- Les retours du jeu sont codés sous forme :
-  - `V` : lettre bien placée (vert)
-  - `J` : lettre présente mais mal placée (jaune)
-  - `G` : lettre absente (gris)
+### 3.1 Domaine
+- Un mot secret est une chaîne de longueur 5 : $$ w \in \{A..Z\}^5 $$.
+- Le dictionnaire est l’ensemble fini des valeurs possibles.
 
-Chaque tentative ajoute une **nouvelle contrainte** sur le mot secret.
+### 3.2 Contraintes
+Chaque tentative ajoute une contrainte de la forme :
 
----
+- donnée une proposition `guess` (5 lettres),
+- et un feedback `fb` (5 caractères parmi `V`, `J`, `G`),
 
-## 4. Solveur CSP (`csp_solver.py`)
-Le solveur repose sur une implémentation fidèle des règles de Wordle, y compris la gestion des doublons.
+Le mot secret `w` est valide si :
 
-### 4.1 Calcul du feedback
-La fonction `wordle_feedback_vjg(secret, guess)` :
-- compare un mot candidat (`secret`) avec une tentative (`guess`)
-- retourne un feedback exact en `V / J / G`
-- respecte les règles officielles de Wordle
+- `wordle_feedback_vjg(w, guess) == fb`.
 
-### 4.2 Filtrage du dictionnaire
-La fonction `solve_wordle_csp(possible_words, attempts)` :
-- parcourt l’ensemble du dictionnaire
-- conserve uniquement les mots compatibles avec **toutes** les tentatives précédentes
-- retourne la liste des mots encore possibles
+Cette formulation a deux avantages :
+- elle respecte automatiquement les règles exactes, y compris les doublons,
+- elle reste simple : on n’encode pas manuellement les contraintes, on compare un feedback calculé.
 
-Cette approche est :
-- déterministe
-- explicable
-- très rapide même avec un grand dictionnaire
+## 4. Module `csp_solver.py`
 
----
+### 4.1 `wordle_feedback_vjg(secret: str, guess: str) -> str`
 
-## 5. Agent LLM (`llm_agent.py`)
-L’agent combine le CSP avec un LLM exécuté localement via **Ollama**.
+**But :** calculer le feedback `V/J/G` selon les règles Wordle.
 
-### 5.1 Entrées utilisateur
-Deux types d’entrées sont acceptés :
-- entrée structurée : `ORATE GVVJG` ou `ORATE -> GVVJG`
-- texte libre (extrait via le LLM)
+**Principe :**
+1. Marquer les verts (lettre correcte à la bonne position).
+2. Pour les positions restantes, marquer les jaunes uniquement si la lettre existe encore dans le mot secret en tenant compte du nombre d’occurrences (gestion des doublons via un compteur).
 
-Une extraction automatique est réalisée si le format n’est pas directement reconnu.
+**Invariants :**
+- `secret` et `guess` sont normalisés en majuscules.
+- Si les longueurs ne valent pas 5 → `ValueError`.
 
-### 5.2 Rôle du LLM
-Le LLM n’est **pas utilisé pour résoudre les contraintes**.  
-Son rôle est :
-- d’extraire une tentative depuis un texte libre
-- de classer les mots proposés par le CSP
-- de suggérer des mots pertinents parmi les solutions valides
+**Exemple :**
+- `secret="APPLE"`, `guess="ALLEY"`  
+  Le comptage empêche d’attribuer plus de jaunes que d’occurrences disponibles.
 
-Le LLM ne peut choisir **que parmi les mots validés par le CSP**.
+### 4.2 `solve_wordle_csp(possible_words, attempts) -> list[str]`
 
----
+**But :** filtrer le dictionnaire en ne conservant que les mots compatibles avec l’historique des tentatives.
 
-## 6. Limitation et contrôle du LLM
-Pour éviter des appels trop coûteux ou inutiles :
-- le nombre de candidats envoyés au LLM est limité
-- si trop de solutions existent, seules les plus informatives sont conservées
-- le CSP reste toujours la source de vérité
+**Entrées :**
+- `possible_words` : itérable de mots candidats (typiquement le dictionnaire complet)
+- `attempts` : liste `[(guess, feedback), ...]`
 
----
+**Sortie :**
+- liste des mots `w` tels que, pour toute tentative, le feedback calculé correspond exactement au feedback attendu.
 
-## 7. Interfaces utilisateur
+**Complexité :**
+- Temps ≈ $$ O(N \times A \times 5) $$ où `N`=taille du dictionnaire, `A`=nombre de tentatives.
+- Mémoire : faible (liste des solutions + structures temporaires).
 
-### 7.1 Interface console (`main.py`)
-- interaction en ligne de commande
-- historique conservé pendant la session
-- affichage des mots possibles et de la décision du LLM
 
-### 7.2 Interface web (`app.py`)
-Développée avec **Streamlit**, elle permet :
-- une saisie structurée (mot + feedback)
-- une saisie en texte libre
-- l’affichage de l’historique des tentatives
-- la visualisation des résultats en temps réel
+## 5. Module `llm_agent.py`
 
----
+### 5.1 Parsing & normalisation
 
-## 8. Exécution du projet
+Le module définit des fonctions de validation :
+- `_normalize_guess(s)` : vérifie chaîne, longueur 5, lettres A–Z
+- `_normalize_feedback(s)` : vérifie longueur 5, alphabet `{V,J,G}`
 
-### Prérequis
-- Python 3.11
-- Ollama installé localement
-- modèle LLM disponible (ex. `llama3.1`)
+Un regex `_DIRECT` accepte notamment :
+- `ORATE GVVJG`
+- `ORATE->GVVJG`
+- `ORATE -> GVVJG`
 
-### Lancement console
-```bash
-python main.py
+### 5.2 Extraction depuis texte libre (fallback LLM)
+
+`extract_attempt_from_text(user_text) -> Optional[dict]`
+
+**But :**
+- Lorsque l’entrée n’est pas au format direct, demander au LLM d’extraire exactement une tentative `(guess, feedback)`.
+
+**Contrôle :**
+- Si l’extraction échoue ou si les champs ne respectent pas les validateurs → `None`.
+
+> Remarque sécurité/robustesse : même si le LLM renvoie n’importe quoi, la normalisation empêche d’ajouter une tentative invalide.
+
+### 5.3 Orchestration complète
+
+`interroger_agent_wordle(prompt_utilisateur, dictionary_words, attempts) -> str`
+
+Pipeline :
+1. Parsing direct ou extraction LLM
+2. Ajout à l’historique `attempts.append((guess, feedback))`
+3. Filtrage CSP : `possible = solve_wordle_csp(...)`
+4. Si `possible` vide → message d’erreur (contraintes incohérentes)
+5. **Ranking LLM** :
+   - on envoie au LLM une liste limitée de candidats (`MAX_CANDIDATES_TO_LLM`, ex. 40),
+   - le LLM doit choisir uniquement dans cette liste et renvoyer :
+     - `Chosen word: <WORD>`
+     - `Priority ranking:` (Top 3)
+
+## 6. Limitation / contrôle du LLM
+
+Objectifs :
+- réduire la latence et le coût,
+- éviter de “noyer” le modèle avec trop de candidats.
+
+Stratégie actuelle :
+- si trop de solutions : sélection d’un sous-ensemble, trié par diversité (`len(set(w))`), puis tronqué.
+
+Propriété clé :
+- **le CSP reste la source de vérité** ; le LLM ne fait que prioriser.
+
+
+## 7. Interfaces
+
+### 7.1 CLI (`main.py`)
+- boucle interactive
+- historique conservé pendant l’exécution
+- affichage : tentative ajoutée, candidats, décision/ranking LLM
+
+### 7.2 Web UI (`app.py`, Streamlit)
+- mode structuré (guess + feedback)
+- mode texte libre (extraction LLM)
+- table d’historique, bouton reset, affichage résultat
+
+
+## 8. Exécution
+
+### 8.1 Prérequis
+- Python 3.8+ selon ton choix
+- Ollama installé
+- Modèle : `llama3.1`
+
+### 8.2 Installer
+`pip install streamlit keyboard ollama`
+
+### 8.3 Lancer la UI Streamlit
+`streamlit run src/app.py`
+
+### 8.4 Lancer en CLI
+`python src/main.py`
+
+
+## 9. Dépannage (troubleshooting)
+
+- **“No solution matches the current constraints”** :
+  - feedback saisi incorrect,
+  - tentative mal retranscrite,
+  - dictionnaire ne contient pas le mot secret.
+- **Extraction texte libre qui échoue** :
+  - le texte ne contient pas clairement un guess 5 lettres et un feedback V/J/G,
+  - reformuler en `ORATE -> GVVJG`.
+- **Problèmes avec `keyboard`** :
+  - dépend de l’OS / permissions ; optionnel si tu acceptes de quitter via Ctrl+C.
+
+
+
